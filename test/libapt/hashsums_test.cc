@@ -9,6 +9,9 @@
 #include <iostream>
 #include <string>
 
+#include <openssl/err.h>
+#include <openssl/evp.h>
+
 #include "common.h"
 
 #include "file-helpers.h"
@@ -302,4 +305,22 @@ TEST(HashSumsTest, HashStringList)
    EXPECT_FALSE(list != list2);
 
    _config->Clear("Acquire::ForceHash");
+}
+TEST(HashSumsTest, UnavailableDigestLeavesNoOpenSSLError)
+{
+   // No provider in a stock OpenSSL offers digests with fips=yes, so every
+   // digest is unavailable here, as MD5 is under a FIPS provider. A failed
+   // EVP_DigestInit_ex() queues errors; if Hashes leaves them behind, a later
+   // SSL_get_error() in the same thread reports SSL_ERROR_SSL for a harmless
+   // SSL_ERROR_WANT_READ and https downloads fail.
+   ASSERT_EQ(1, EVP_set_default_properties(nullptr, "fips=yes"));
+   ERR_clear_error();
+   {
+      Hashes hashes;
+      hashes.Add("x");
+      EXPECT_TRUE(hashes.GetHashString(Hashes::SHA256SUM).empty());
+   }
+   unsigned long const err = ERR_peek_error();
+   EVP_set_default_properties(nullptr, "");
+   EXPECT_EQ(0ul, err) << ERR_error_string(err, nullptr);
 }
