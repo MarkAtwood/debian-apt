@@ -30,6 +30,7 @@
 #include <string>
 #include <unistd.h>
 
+#include <openssl/err.h>
 #include <openssl/evp.h>
 									/*}}}*/
 
@@ -374,7 +375,12 @@ class PrivateHashes
       contexts[algo.index] = EVP_MD_CTX_new();
       if (contexts[algo.index] == nullptr)
 	 return false;
-      if (EVP_DigestInit_ex(contexts[algo.index], algo.evpLink(), NULL))
+      // An unavailable digest (e.g. MD5 under a FIPS provider) queues errors.
+      // Drop them, or a later SSL_get_error() in this thread misreads them.
+      ERR_set_mark();
+      bool const ok = EVP_DigestInit_ex(contexts[algo.index], algo.evpLink(), NULL);
+      ERR_pop_to_mark();
+      if (ok)
 	 return true;
       EVP_MD_CTX_destroy(contexts[algo.index]);
       contexts[algo.index] = nullptr;
